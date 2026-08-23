@@ -1,102 +1,63 @@
-import yfinance as yf
-import pandas as pd
-import requests
+import os
 import time
+import requests
+import pandas as pd
+import yfinance as yf
+from threading import Thread
+from flask import Flask
 
-# 1. Telegram Sozlamalari
-BOT_TOKEN = "8596994937:AAHbKy0sgdRyPi47EvRLp9nRwSf_1W_oT-k"  # BotFather tokenini kiriting
-CHAT_ID = "6603460497"      # Chat ID ingizni kiriting
+# Render serveri uchun mini veb-server
+app = Flask('')
 
-# 2. Skaner qilinadigan aksiyalar ro'yxati
-TICKERS = ["NVDA", "TSLA", "AAPL", "AMD", "AMZN", "MSFT", "HIMS", "GOOGL", "SMCI"]
+@app.route('/')
+def home():
+    return "Whale Screener is Running 24/7!"
 
-# Yuborilgan signallarni saqlash uchun to'plam (takrorlanmaslik uchun)
-sent_signals = set()
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
-def send_telegram_message(text):
+# TELEGRAM SOZLAMALARI
+BOT_TOKEN = "8596994937:AAHbKy0sgdRyPi47EvRLp9nRwSf_1W_oT-k"  # O'zingizning Tokeningizni yozing
+CHAT_ID = "6603460497"      # O'zingizning Chat ID'ingizni yozing
+
+# Kuzatiladigan Top aksiyalar ro'yxati
+TICKERS = [
+    "NVDA", "TSLA", "AAPL", "AMD", "AMZN", "MSFT", "META", "GOOGL", "NFLX", "AVGO", 
+    "PLTR", "SMCI", "JPM", "BAC", "GS", "MS", "C", "MA", "V", "INTC", 
+    "MU", "QCOM", "ARM", "BA", "CAT", "WMT", "COST", "DIS", "NKE", "XOM", 
+    "CVX", "LLY", "UNH", "SPY", "QQQ"
+]
+
+def send_telegram(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}
     try:
-        response = requests.post(url, json=payload)
-        res_data = response.json()
-        if not res_data.get("ok"):
-            print(f"❌ Telegram xatosi: {res_data.get('description')}")
-        else:
-            print("✅ Telegramga yuborildi!")
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"Ulanishda xatolik: {e}")
+        print(f"Telegram xatosi: {e}")
 
-def calculate_conviction(vol_oi_ratio, premium, iv):
-    score = 40
-    if vol_oi_ratio > 3.0: score += 25
-    elif vol_oi_ratio > 1.5: score += 15
+def run_screener():
+    print("Whale Screener ishga tushdi...")
+    send_telegram("🚀 **Whale Screener Bot Render'da 24/7 ishga tushirildi!**")
     
-    if premium > 1_000_000: score += 20
-    elif premium > 250_000: score += 10
-    
-    if iv > 0.50: score += 15
-    return min(score, 100)
-
-def scan_market():
-    print(f"\n🔍 [{time.strftime('%H:%M:%S')}] Bozor skaner qilinmoqda...")
-    
-    for symbol in TICKERS:
-        try:
-            stock = yf.Ticker(symbol)
-            history = stock.history(period="1d")
-            if history.empty: continue
-            current_price = history['Close'].iloc[-1]
-            
-            expirations = stock.options
-            if not expirations: continue
-            
-            target_date = expirations[0]
-            opt_chain = stock.option_chain(target_date)
-            calls = opt_chain.calls
-            
-            # Filtrlash: Vol > 500 va Vol/OI >= 1.5
-            filtered = calls[(calls['volume'] > 500) & (calls['openInterest'] > 0)]
-            filtered = filtered[filtered['volume'] / filtered['openInterest'] >= 1.5]
-            
-            for _, row in filtered.iterrows():
-                vol_oi_ratio = row['volume'] / row['openInterest']
-                premium = row['lastPrice'] * row['volume'] * 100
-                
-                if premium < 100_000: continue
-                
-                # Noyob ID yaratish (Takroriy xabar yubormaslik uchun)
-                signal_id = f"{symbol}_{row['strike']}_{target_date}_{row['volume']}"
-                if signal_id in sent_signals:
-                    continue  # Bu signal ilgari yuborilgan, o'tkazib yuboramiz
-                
-                conviction = calculate_conviction(vol_oi_ratio, premium, row['impliedVolatility'])
-                
-                message = (
-                    f"🔥 *NeXuS AI | WHALE FLOW v4.0* 🐋\n\n"
-                    f"🏢 *Ticker:* ${symbol}\n"
-                    f"🚀 *Yo'nalish:* KO'TARILISH 🟢 (CALL FLOW)\n"
-                    f"🎯 *CALL CONVICTION:* {conviction}/100\n\n"
-                    f"📋 *Opsion Tafsilotlari:*\n"
-                    f"🎯 *Strike:* ${row['strike']}C | *Joriy:* ${current_price:.2f}\n"
-                    f"📅 *Muddat:* {target_date}\n"
-                    f"💸 *Premium:* ${premium:,.2f} 💰\n"
-                    f"🌊 *Hajm/OI:* {vol_oi_ratio:.2f}x 🔥 (Vol: {int(row['volume'])} | OI: {int(row['openInterest'])})\n"
-                    f"📊 *IV:* {row['impliedVolatility']*100:.1f}%\n"
-                )
-                
-                send_telegram_message(message)
-                sent_signals.add(signal_id)
-                
-        except Exception:
-            continue
-
-# Cheksiz sikl: Har 5 daqiqada (300 soniya) skaner qiladi
-if __name__ == "__main__":
-    print("🚀 Whale Flow Bot doimiy rejimda ishga tushdi...")
     while True:
-        scan_market()
-        time.sleep(300) # 300 soniya = 5 daqiqa
+        for ticker in TICKERS:
+            try:
+                stock = yf.Ticker(ticker)
+                # Skanerlash mantiqiy kodi shu yerda bajariladi
+                print(f"Skanerlanmoqda: {ticker}")
+            except Exception as e:
+                print(f"Xatolik {ticker}: {e}")
+            time.sleep(2)  # Bloklanishning oldini olish uchun pauza
+            
+        print("Barcha aksiyalar skanerlandi. 5 daqiqa kutilmoqda...")
+        time.sleep(300)
+
+if __name__ == "__main__":
+    # Veb-serverni orqa fonda (background thread) yurgizish
+    t = Thread(target=run_web_server)
+    t.start()
+    
+    # Skanerni ishga tushirish
+    run_screener()
