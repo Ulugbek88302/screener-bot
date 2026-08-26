@@ -19,8 +19,8 @@ TICKERS = [
 ]
 
 # Kitlar filtri (Signallar tezroq kelishi uchun optimal sozlama)
-MIN_PREMIUM = 50000     # $50,000 va undan yuqori opsionlar
-MIN_VOL_OI_RATIO = 1.1  # Hajm / OI nisbati 1.1x va undan yuqori
+MIN_PREMIUM = 500000     # $50,000 va undan yuqori opsionlar
+MIN_VOL_OI_RATIO = 1.2  # Hajm / OI nisbati 1.1x va undan yuqori
 # ====================================================
 
 def send_telegram_msg(text):
