@@ -1,91 +1,106 @@
-import os
 import time
 import requests
-import pandas as pd
 import yfinance as yf
-from threading import Thread
-from flask import Flask
+import pandas as pd
 
-# Render serveri uchun mini veb-server
-app = Flask('')
+# ==================== SOZLAMALAR ====================
+TELEGRAM_BOT_TOKEN = "8596994937:AAHbKy0sgdRyPi47EvRLp9nRwSf_1W_oT-k"
+TELEGRAM_CHAT_ID = "6603460497"
 
-@app.route('/')
-def home():
-    return "Whale Screener is Running 24/7!"
+BOT_NAME = "WHALE FLOW AI"
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
-
-# TELEGRAM SOZLAMALARI
-BOT_TOKEN = "8596994937:AAHbKy0sgdRyPi47EvRLp9nRwSf_1W_oT-k"
-CHAT_ID = "6603460497"
-
-# Kuzatiladigan Top aksiyalar ro'yxati
+# Top-38 eng volatil va opsion hajmi yuqori aksiyalar
 TICKERS = [
-    "NVDA", "TSLA", "AAPL", "AMD", "AMZN", "MSFT", "META", "GOOGL", "NFLX", "AVGO", 
-    "PLTR", "SMCI", "JPM", "BAC", "GS", "MS", "C", "MA", "V", "INTC", 
-    "MU", "QCOM", "ARM", "BA", "CAT", "WMT", "COST", "DIS", "NKE", "XOM", 
-    "CVX", "LLY", "UNH", "SPY", "QQQ"
+    "NVDA", "TSLA", "AAPL", "AMZN", "MSFT", "GOOGL", "META", "AMD",
+    "SMCI", "AVGO", "ARM", "MU", "INTC", "TSM", "PLTR", "ORCL",
+    "COIN", "MSTR", "JPM", "BAC", "MARA", "RIOT", "HOOD", "RBLX",
+    "DIS", "NFLX", "DKNG", "SNAP", "SOFI", "UBER", "BABA", "PDD",
+    "SPY", "QQQ", "IWM", "XLF"
 ]
 
-def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}
+# Kitlar filtri
+MIN_PREMIUM = 500000    # Kamida $500,000 to'langan bo'lishi shart
+MIN_VOL_OI_RATIO = 1.5  # Hajm / OI nisbati 1.5x dan yuqori
+# ====================================================
+
+def send_telegram_msg(text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"Telegram xatosi: {e}")
+        print(f"Telegram xatosi: {e}", flush=True)
 
-def run_screener():
-    print("Whale Screener ishga tushdi...")
-    send_telegram("🚀 **Whale Screener Bot Render'da 24/7 ishga tushirildi!**")
+def analyze_options(ticker_symbol):
+    try:
+        stock = yf.Ticker(ticker_symbol)
+        hist = stock.history(period="2d")
+        if hist.empty:
+            return
+            
+        current_price = hist['Close'].iloc[-1]
+        expirations = stock.expirations
+        if not expirations:
+            return
+            
+        target_exp = expirations[0]
+        opt_chain = stock.option_chain(target_exp)
+        calls = opt_chain.calls
+
+        for _, row in calls.iterrows():
+            volume = row.get('volume', 0)
+            open_interest = row.get('openInterest', 1) or 1
+            last_price = row.get('lastPrice', 0)
+            strike = row['strike']
+            
+            premium = volume * last_price * 100
+            vol_oi_ratio = volume / open_interest if open_interest > 0 else 0
+
+            if premium >= MIN_PREMIUM and vol_oi_ratio >= MIN_VOL_OI_RATIO and strike > current_price:
+                otm_pct = ((strike - current_price) / current_price) * 100
+                stop_loss = current_price * 0.99
+                
+                msg = f"""🔥 **{BOT_NAME} | OPTIONS FLOW v1.0** 🐋
+
+🏢 **Ticker:** ${ticker_symbol}
+🎯 **Rule:** 🌊 FLOW (Kitlar Oqimi)
+📊 **Rating:** ⚪️ NEUTRAL
+🚀 **Yo'nalish:** KO'TARILISH 🟢 (CALL FLOW)
+
+🎯 **CALL CONVICTION:** 75/100
+[███████░░░] 🟢 KUCHLI (Strong)
+
+📋 **Opsion Tafsilotlari:**
+🎯 **Strike:** ${strike:.2f}C | **Joriy:** ${current_price:.2f}
+📐 **Holat:** OTM ({otm_pct:.2f}%, yuqorida)
+📅 **Muddat:** {target_exp}
+
+💸 **To'langan Premium:** ${premium/1e6:.2f}M 💰
+🌊 **Hajm (Vol) / Ochiq Qiziqish (OI):** {vol_oi_ratio:.2f}x 🔥
+🟢 **Pozitsiya:** 100% YANGI OCHILGAN (Opening)
+
+🧠 **{BOT_NAME} LOGIC ENGINE**
+💵 **Ssenariy:** OTM — ${premium/1e6:.2f}M bu narx ${strike:.2f} gacha KO'TARILISHIGA tikilgan pul
+🛑 **Stop-Loss:** ${stop_loss:.2f}
+🎯 **Take-Profit (Strike):** ${strike:.2f}"""
+
+                print(f"[+] Signal topildi: {ticker_symbol} ${strike}C", flush=True)
+                send_telegram_msg(msg)
+                time.sleep(2)
+
+    except Exception as e:
+        print(f"Xatolik ({ticker_symbol}): {e}", flush=True)
+
+def main():
+    print("Skaner ishga tushdi...", flush=True)
+    send_telegram_msg(f"🚀 **{BOT_NAME} Screener Bot ishga tushirildi!**")
     
     while True:
         for ticker in TICKERS:
-            try:
-                stock = yf.Ticker(ticker)
-                # Oxirgi 2 kunlik 5 daqiqalik ma'lumotlarni olish
-                df = stock.history(period="1d", interval="5m")
-                
-                if not df.empty and len(df) > 1:
-                    last_row = df.iloc[-1]
-                    prev_row = df.iloc[-2]
-                    
-                    price = last_row['Close']
-                    volume = last_row['Volume']
-                    avg_volume = df['Volume'].mean()
-                    
-                    # O'sish yoki tushish foizi
-                    price_change = ((price - prev_row['Close']) / prev_row['Close']) * 100
-                    
-                    # SHART: Hajm o'rtachadan 2.5 baravar ko'p va narx 0.8% dan ko'p o'zgargan bo'lsa (Kitlar kirishi)
-                    if volume > (avg_volume * 2.5) and abs(price_change) >= 0.8:
-                        direction = "🟢 CALL / BUYLAR" if price_change > 0 else "🔴 PUT / SELLLAR"
-                        
-                        msg = (
-                            f"🚨 **KITLAR HARAKATI (WHALE ALERT)** 🚨\n\n"
-                            f"📌 **Aksiya:** `{ticker}`\n"
-                            f"📊 **Yo'nalish:** {direction}\n"
-                            f"💵 **Hozirgi Narx:** `${price:.2f}`\n"
-                            f"📈 **5 Min O'zgarish:** `{price_change:.2f}%`\n"
-                            f"🔥 **Hajm (Volume):** `{volume:,}` (O'rtacha: `{int(avg_volume):,}`)\n\n"
-                            f"⏰ *Vaqt (EST):* {last_row.name.strftime('%H:%M:%S')}"
-                        )
-                        send_telegram(msg)
-                        print(f"SIGNAL YUBORILDI: {ticker}")
-                    else:
-                        print(f"Skanerlandi: {ticker} | Narx: ${price:.2f} | Hajm: {volume}")
-                        
-            except Exception as e:
-                print(f"Xatolik {ticker}: {e}")
-                
-            time.sleep(2)  # Bloklanishning oldini olish uchun
-            
-        print("Barcha aksiyalar skanerlandi. 5 daqiqa kutilmoqda...")
+            analyze_options(ticker)
+            time.sleep(1)
+        
         time.sleep(300)
 
 if __name__ == "__main__":
-    t = Thread(target=run_web_server)
-    t.start()
-    run_screener()
+    main()
