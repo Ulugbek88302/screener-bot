@@ -19,8 +19,8 @@ TICKERS = [
 ]
 
 # Kitlar filtri
-MIN_PREMIUM = 500000    # Kamida $500,000 to'langan bo'lishi shart
-MIN_VOL_OI_RATIO = 1.5  # Hajm / OI nisbati 1.5x dan yuqori
+MIN_PREMIUM = 50000    # Kamida $500,000 to'langan bo'lishi shart
+MIN_VOL_OI_RATIO = 1.1  # Hajm / OI nisbati 1.5x dan yuqori
 # ====================================================
 
 def send_telegram_msg(text):
