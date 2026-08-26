@@ -9,7 +9,7 @@ TELEGRAM_CHAT_ID = "6603460497"
 
 BOT_NAME = "WHALE FLOW AI"
 
-# Top-38 eng volatil va opsion hajmi yuqori aksiyalar
+# Top aksiyalar va ETFlar ro'yxati
 TICKERS = [
     "NVDA", "TSLA", "AAPL", "AMZN", "MSFT", "GOOGL", "META", "AMD",
     "SMCI", "AVGO", "ARM", "MU", "INTC", "TSM", "PLTR", "ORCL",
@@ -18,9 +18,9 @@ TICKERS = [
     "SPY", "QQQ", "IWM", "XLF"
 ]
 
-# Kitlar filtri
-MIN_PREMIUM = 50000    # Kamida $500,000 to'langan bo'lishi shart
-MIN_VOL_OI_RATIO = 1.1  # Hajm / OI nisbati 1.5x dan yuqori
+# Kitlar filtri (Signallar tezroq kelishi uchun optimal sozlama)
+MIN_PREMIUM = 50000     # $50,000 va undan yuqori opsionlar
+MIN_VOL_OI_RATIO = 1.1  # Hajm / OI nisbati 1.1x va undan yuqori
 # ====================================================
 
 def send_telegram_msg(text):
@@ -39,11 +39,13 @@ def analyze_options(ticker_symbol):
             return
             
         current_price = hist['Close'].iloc[-1]
-        expirations = stock.expirations
-        if not expirations:
+        
+        # 'expirations' o'rniga yangilangan 'options' metodi ishlatildi
+        options_dates = stock.options
+        if not options_dates:
             return
             
-        target_exp = expirations[0]
+        target_exp = options_dates[0]
         opt_chain = stock.option_chain(target_exp)
         calls = opt_chain.calls
 
@@ -53,8 +55,13 @@ def analyze_options(ticker_symbol):
             last_price = row.get('lastPrice', 0)
             strike = row['strike']
             
+            # None yoki NaN qiymatlarni 0 ga o'girish
+            volume = 0 if pd.isna(volume) else volume
+            open_interest = 1 if pd.isna(open_interest) or open_interest == 0 else open_interest
+            last_price = 0 if pd.isna(last_price) else last_price
+            
             premium = volume * last_price * 100
-            vol_oi_ratio = volume / open_interest if open_interest > 0 else 0
+            vol_oi_ratio = volume / open_interest
 
             if premium >= MIN_PREMIUM and vol_oi_ratio >= MIN_VOL_OI_RATIO and strike > current_price:
                 otm_pct = ((strike - current_price) / current_price) * 100
