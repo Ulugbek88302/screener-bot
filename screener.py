@@ -9,18 +9,16 @@ TELEGRAM_CHAT_ID = "6603460497"
 
 BOT_NAME = "WHALE FLOW AI"
 
-# Top aksiyalar va ETFlar ro'yxati
+# Yahoo bloklamasligi uchun ro'yxatni eng qaynoq Top 15 ta aksiyaga tushiramiz
 TICKERS = [
-    "NVDA", "TSLA", "AAPL", "AMZN", "MSFT", "GOOGL", "META", "AMD",
-    "SMCI", "AVGO", "ARM", "MU", "INTC", "TSM", "PLTR", "ORCL",
-    "COIN", "MSTR", "JPM", "BAC", "MARA", "RIOT", "HOOD", "RBLX",
-    "DIS", "NFLX", "DKNG", "SNAP", "SOFI", "UBER", "BABA", "PDD",
-    "SPY", "QQQ", "IWM", "XLF"
+    "NVDA", "TSLA", "AAPL", "AMZN", "MSFT", "AMD",
+    "SMCI", "AVGO", "PLTR", "COIN", "MSTR",
+    "SPY", "QQQ", "VIX"
 ]
 
-# Kitlar filtri (Signallar tezroq kelishi uchun optimal sozlama)
-MIN_PREMIUM = 500000     # $50,000 va undan yuqori opsionlar
-MIN_VOL_OI_RATIO = 1.2  # Hajm / OI nisbati 1.1x va undan yuqori
+# Kitlar filtri
+MIN_PREMIUM = 50000     # $50,000 va undan yuqori opsionlar
+MIN_VOL_OI_RATIO = 1.1  # Hajm / OI nisbati 1.1x va undan yuqori
 # ====================================================
 
 def send_telegram_msg(text):
@@ -34,20 +32,24 @@ def send_telegram_msg(text):
 def analyze_options(ticker_symbol):
     try:
         stock = yf.Ticker(ticker_symbol)
-        hist = stock.history(period="2d")
-        if hist.empty:
-            return
-            
-        current_price = hist['Close'].iloc[-1]
         
-        # 'expirations' o'rniga yangilangan 'options' metodi ishlatildi
+        # Yahoo blokiga tushmaslik uchun 2 soniya kutamiz
+        time.sleep(2)
+        
         options_dates = stock.options
         if not options_dates:
+            print(f"[{ticker_symbol}] Opsion sanalari topilmadi.", flush=True)
             return
             
         target_exp = options_dates[0]
         opt_chain = stock.option_chain(target_exp)
         calls = opt_chain.calls
+
+        # Joriy narxni olish
+        hist = stock.history(period="1d")
+        if hist.empty:
+            return
+        current_price = hist['Close'].iloc[-1]
 
         for _, row in calls.iterrows():
             volume = row.get('volume', 0)
@@ -55,7 +57,6 @@ def analyze_options(ticker_symbol):
             last_price = row.get('lastPrice', 0)
             strike = row['strike']
             
-            # None yoki NaN qiymatlarni 0 ga o'girish
             volume = 0 if pd.isna(volume) else volume
             open_interest = 1 if pd.isna(open_interest) or open_interest == 0 else open_interest
             last_price = 0 if pd.isna(last_price) else last_price
@@ -105,9 +106,9 @@ def main():
     while True:
         for ticker in TICKERS:
             analyze_options(ticker)
-            time.sleep(1)
         
-        time.sleep(300)
+        # Har bir to'liq skanerdan so'ng 3 daqiqa kutish
+        time.sleep(180)
 
 if __name__ == "__main__":
     main()
